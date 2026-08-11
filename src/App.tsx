@@ -1,45 +1,20 @@
 import { useState } from 'react'
-import './App.css'
+import AppDataProvider from './context/AppDataProvider'
+import { BottomNav, StatusBar, type TabId } from './components/AppChrome'
 import HomePage from './pages/HomePage'
-import OrderPage from './pages/OrderPage'
 import EarningsPage from './pages/EarningsPage'
 import MyPage from './pages/MyPage'
-
-type TabId = 'home' | 'order' | 'earnings' | 'my'
-
-const TABS: { id: TabId; label: string }[] = [
-  { id: 'home', label: '홈' },
-  { id: 'order', label: '오더' },
-  { id: 'earnings', label: '수익' },
-  { id: 'my', label: '마이' },
-]
+import OrderPage from './pages/OrderPage'
+import './App.css'
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabId>('home')
-
-  return (
-    <div className="app-shell">
-      <main className="page-content">
-        {activeTab === 'home' && <HomePage />}
-        {activeTab === 'order' && <OrderPage />}
-        {activeTab === 'earnings' && <EarningsPage />}
-        {activeTab === 'my' && <MyPage />}
-      </main>
-      <nav className="bottom-nav">
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            className={`nav-button${activeTab === tab.id ? ' active' : ''}`}
-            aria-pressed={activeTab === tab.id}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-    </div>
-  )
+  return <AppDataProvider><div className="phone-stage"><div className="phone-shell"><StatusBar/><main className="page-content">
+    {activeTab === 'home' && <HomePage onNavigate={setActiveTab}/>}
+    {activeTab === 'order' && <OrderPage/>}
+    {activeTab === 'earnings' && <EarningsPage/>}
+    {activeTab === 'my' && <MyPage/>}
+  </main><BottomNav active={activeTab} onChange={setActiveTab}/></div></div></AppDataProvider>
 }
 
 export default App
