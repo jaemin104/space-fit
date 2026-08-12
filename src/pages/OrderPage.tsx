@@ -3,6 +3,10 @@ import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import './pages.css'
+import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
+import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
+import { buildCandidateCombinations, type CandidateCombination, type CargoRisk as AiCargoRisk } from '../utils/cargoRecommendation'
+import { analyzeCargoRisk, recommendCargoCombinations, type OrderPreferences } from '../utils/fetchCargoAi'
 
 type CargoRisk = 'safe' | 'caution' | 'danger'
 
@@ -35,11 +39,13 @@ export interface RecommendedCombination {
   volumeLoadRate: number
   weightLoadRate: number
   orders: RouteItem[]
+  aiReason?: string
+  overallRisk?: AiCargoRisk
 }
 
 const VEHICLE_MAX_WEIGHT_KG = 1000
 
-const combinations: RecommendedCombination[] = [
+const designExamples: RecommendedCombination[] = [
   {
     id: 'combo-1',
     title: '성남 복귀 방면 조합',
@@ -123,6 +129,58 @@ const combinations: RecommendedCombination[] = [
     ],
   },
 ]
+
+const ordersById = new Map(mockOrders.map((order) => [order.id, order]))
+const allCandidates = buildCandidateCombinations(mockOrders, driverOperation)
+
+function riskTone(level: AiCargoRisk['level']): CargoRisk {
+  return level === 'low' ? 'safe' : level === 'medium' ? 'caution' : 'danger'
+}
+
+function toRouteItem(order: CargoOrder, overallRisk: AiCargoRisk): RouteItem {
+  return {
+    id: order.id,
+    name: order.cargoType,
+    pickup: { name: order.pickup.name, lat: order.pickup.latitude, lng: order.pickup.longitude },
+    dropoff: { name: order.dropoff.name, lat: order.dropoff.latitude, lng: order.dropoff.longitude },
+    volume: order.volumeM3,
+    weight: Math.round(order.weightTon * 1000),
+    price: order.price,
+    risk: riskTone(overallRisk.level),
+    riskNote: overallRisk.reason,
+    riskFlag: overallRisk.warnings.join(' · ') || undefined,
+  }
+}
+
+function toCombination(candidate: CandidateCombination, index: number, ai?: { title: string; reason: string; risk: AiCargoRisk }): RecommendedCombination {
+  const risk = ai?.risk ?? candidate.risk
+  const orders = candidate.orderIds.map((id) => ordersById.get(id)).filter((order): order is CargoOrder => Boolean(order))
+  return {
+    id: `candidate-${candidate.id}-${index}`,
+    title: ai?.title ?? `${orders.at(-1)?.dropoff.name ?? '복귀'} 방면 추천 조합`,
+    aiRecommended: Boolean(ai),
+    extraDistanceKm: candidate.estimatedExtraKm,
+    extraTimeMin: Math.max(5, Math.round(candidate.estimatedExtraKm * 2.6)),
+    expectedNetProfit: candidate.totalPrice,
+    volumeLoadRate: Math.round((driverOperation.currentLoad.volumeM3 + candidate.totalVolumeM3) / driverOperation.vehicle.maxVolumeM3 * 100),
+    weightLoadRate: Math.round((driverOperation.currentLoad.weightTon + candidate.totalWeightTon) / driverOperation.vehicle.maxWeightTon * 100),
+    orders: orders.map((order) => toRouteItem(order, risk)),
+    aiReason: ai?.reason,
+    overallRisk: risk,
+  }
+}
+
+function filterCandidates(preferences: OrderPreferences) {
+  return allCandidates.filter((candidate) => {
+    const minutes = Math.max(5, Math.round(candidate.estimatedExtraKm * 2.6))
+    return (preferences.maxMinutes === null || minutes <= preferences.maxMinutes)
+      && (preferences.maxDistanceKm === null || candidate.estimatedExtraKm <= preferences.maxDistanceKm)
+      && (preferences.minPrice === null || candidate.totalPrice >= preferences.minPrice)
+  })
+}
+
+const generatedFallback = allCandidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
+const fallbackCombinations = generatedFallback.length ? generatedFallback : designExamples
 
 function withTopicParticle(word: string) {
   const lastChar = word.charCodeAt(word.length - 1)
@@ -256,6 +314,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
       </section>
       <section className="combo-detail-orders">
         <h2>조합에 포함된 오더</h2>
+        {combo.overallRisk && <div className={`ai-risk-summary risk-${riskTone(combo.overallRisk.level)}`}><strong>◆ 혼적판단 AI · {combo.overallRisk.level.toUpperCase()}</strong><span>{combo.overallRisk.reason}</span>{combo.overallRisk.warnings.map((warning) => <em key={warning}>{warning}</em>)}</div>}
         {combo.orders.map((order, index) => (
           <article key={order.id} className={`detail-order-card risk-${order.risk}`}>
             <div className="detail-order-head">
@@ -342,33 +401,102 @@ function LoadingScreen({ onDone }: { onDone: () => void }) {
 }
 
 function OrderPage() {
+  const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
   const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route'>('loading')
-  const [selectedId, setSelectedId] = useState(combinations[0].id)
+  const [combinations, setCombinations] = useState(fallbackCombinations)
+  const [selectedId, setSelectedId] = useState(fallbackCombinations[0]?.id ?? '')
+  const [preferences, setPreferences] = useState<OrderPreferences | null>(null)
+  const [transcript, setTranscript] = useState('')
+  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'fallback'>('idle')
+  const [aiMessage, setAiMessage] = useState('')
 
   const selected = combinations.find((combo) => combo.id === selectedId) ?? combinations[0]
+
+  useEffect(() => {
+    if (!preferences || entry !== 'recommendations') return
+    let active = true
+    const candidates = filterCandidates(preferences)
+    const loadRecommendations = async () => {
+      await Promise.resolve()
+      if (!active) return
+      if (!candidates.length) {
+        setCombinations([])
+        setAiStatus('fallback')
+        setAiMessage('말씀하신 조건에 맞는 후보가 없어요. 조건을 조금 넓혀주세요.')
+        setView('list')
+        return
+      }
+      setAiStatus('loading')
+      setView('loading')
+      recommendCargoCombinations(mockOrders, driverOperation, candidates).then(({ recommendations }) => {
+      if (!active) return
+      const next = recommendations.map((ai, index) => {
+        const key = [...ai.orderIds].sort().join('|')
+        const candidate = candidates.find((item) => [...item.orderIds].sort().join('|') === key)
+        return candidate ? toCombination(candidate, index, ai) : null
+      }).filter((item): item is RecommendedCombination => Boolean(item))
+      const resolved = next.length ? next : candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
+      setCombinations(resolved)
+      setSelectedId(resolved[0]?.id ?? '')
+      setAiStatus(next.length ? 'ready' : 'fallback')
+      setAiMessage(next.length ? 'Gemini가 수익·거리·혼적 안전성을 비교했어요.' : 'AI 응답을 확인하지 못해 안전한 로컬 추천을 보여드려요.')
+    }).catch((error) => {
+      if (!active) return
+      const resolved = candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
+      setCombinations(resolved)
+      setSelectedId(resolved[0]?.id ?? '')
+      setAiStatus('fallback')
+      setAiMessage(error instanceof Error ? `${error.message} · 로컬 추천을 표시합니다.` : '로컬 추천을 표시합니다.')
+      }).finally(() => { if (active) setView('list') })
+    }
+    void loadRecommendations()
+    return () => { active = false }
+  }, [entry, preferences])
+
+  const openDetail = (combo: RecommendedCombination) => {
+    setSelectedId(combo.id)
+    setView('detail')
+    const orders = combo.orders.map((route) => ordersById.get(route.id)).filter((order): order is CargoOrder => Boolean(order))
+    void analyzeCargoRisk(orders, orders.map((order) => order.id)).then(({ risk }) => {
+      setCombinations((current) => current.map((item) => item.id === combo.id ? { ...item, overallRisk: risk, orders: orders.map((order) => toRouteItem(order, risk)) } : item))
+    }).catch(() => undefined)
+  }
+
+  if (entry === 'voice') {
+    return <VoiceOrderPreferences onComplete={(nextPreferences, nextTranscript) => {
+      setPreferences(nextPreferences)
+      setTranscript(nextTranscript)
+      setEntry('recommendations')
+    }}/>
+  }
 
   if (view === 'loading') {
     return <LoadingScreen onDone={() => setView('list')} />
   }
 
   if (view === 'detail') {
+    if (!selected) return null
     return <ComboDetail combo={selected} onBack={() => setView('list')} />
   }
 
   if (view === 'route') {
+    if (!selected) return null
     return <ComboRouteView combo={selected} onBack={() => setView('list')} />
   }
 
   return (
     <div className="screen order-screen">
       <header className="plain-title"><h1>오늘의 추천 오더</h1></header>
+      <div className="voice-condition-summary"><div><span>말씀하신 조건</span><strong>{preferences?.summary || transcript}</strong></div><button type="button" onClick={() => setEntry('voice')}>다시 말하기</button></div>
+      <div className={`recommendation-status ${aiStatus}`}>{aiMessage}</div>
+      {!combinations.length && <div className="empty-combinations"><strong>조건에 맞는 조합이 없어요</strong><span>시간·거리·최소 운임 조건을 넓혀 다시 말해보세요.</span><button type="button" onClick={() => setEntry('voice')}>조건 다시 말하기</button></div>}
       <div className="combo-list">
         {combinations.map((combo) => (
           <ComboCard
             key={combo.id}
             combo={combo}
             onOpenRoute={() => { setSelectedId(combo.id); setView('route') }}
-            onOpenDetail={() => { setSelectedId(combo.id); setView('detail') }}
+            onOpenDetail={() => openDetail(combo)}
           />
         ))}
       </div>

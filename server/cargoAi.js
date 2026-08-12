@@ -28,6 +28,20 @@ export async function analyzeRiskWithGemini({ orders, loadingOrderIds }, apiKey 
   return { risk: result.risk }
 }
 
+export async function extractOrderPreferencesWithGemini({ transcript }, apiKey = process.env.GEMINI_API_KEY) {
+  if (!apiKey) throw new ApiError(503, 'GEMINI_API_KEY가 설정되지 않았습니다.')
+  if (typeof transcript !== 'string' || !transcript.trim()) throw new ApiError(400, '분석할 음성 문장을 입력해 주세요.')
+  const prompt = `당신은 화물 운송 기사의 자연어 운행 조건을 숫자로 정리하는 도우미입니다.
+문장에서 총 운행 시간 상한(분), 추가 운행 거리 상한(km), 희망 최소 총 운임(원)을 추출하세요.
+"2시간"은 120분, "7만원"은 70000원입니다. 말하지 않은 조건은 null로 반환하세요. 추측하거나 없는 숫자를 만들지 마세요.
+입력: ${JSON.stringify(transcript.trim())}
+출력 JSON: {"preferences":{"maxMinutes":120,"maxDistanceKm":30,"minPrice":70000,"summary":"2시간 이내 · 30km 이내 · 70,000원 이상"}}`
+  const result = await generateJson(prompt, apiKey)
+  const preferences = result.preferences
+  if (!preferences || !isNullableNumber(preferences.maxMinutes) || !isNullableNumber(preferences.maxDistanceKm) || !isNullableNumber(preferences.minPrice) || typeof preferences.summary !== 'string') throw new ApiError(502, 'Gemini가 운행 조건을 올바르게 반환하지 않았습니다.')
+  return { preferences }
+}
+
 async function generateJson(prompt, apiKey) {
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, responseMimeType: 'application/json' } }), signal: AbortSignal.timeout(20_000) })
   const body = await response.json()
@@ -38,4 +52,5 @@ async function generateJson(prompt, apiKey) {
 }
 
 function isRisk(risk) { return risk && ['low', 'medium', 'high', 'prohibited'].includes(risk.level) && typeof risk.compatible === 'boolean' && typeof risk.reason === 'string' && Array.isArray(risk.warnings) }
+function isNullableNumber(value) { return value === null || (typeof value === 'number' && Number.isFinite(value) && value >= 0) }
 export class ApiError extends Error { constructor(statusCode, message) { super(message); this.statusCode = statusCode } }

@@ -2,6 +2,7 @@ import type { CargoOrder, DriverOperation } from '../data/mockOrders'
 import type { CandidateCombination, CargoRisk } from './cargoRecommendation'
 
 export type AiRecommendation = { orderIds: string[]; title: string; reason: string; risk: CargoRisk }
+export type OrderPreferences = { maxMinutes: number | null; maxDistanceKm: number | null; minPrice: number | null; summary: string }
 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -15,3 +16,6 @@ export const recommendCargoCombinations = (orders: CargoOrder[], operation: Driv
 
 export const analyzeCargoRisk = (orders: CargoOrder[], loadingOrderIds: string[]) =>
   post<{ risk: CargoRisk }>('/api/analyze-cargo-risk', { orders, loadingOrderIds })
+
+export const extractOrderPreferences = (transcript: string) =>
+  post<{ preferences: OrderPreferences }>('/api/extract-order-preferences', { transcript })
