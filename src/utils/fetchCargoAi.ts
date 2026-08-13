@@ -14,8 +14,5 @@ async function post<T>(url: string, body: unknown): Promise<T> {
 export const recommendCargoCombinations = (orders: CargoOrder[], operation: DriverOperation, candidates: CandidateCombination[]) =>
   post<{ recommendations: AiRecommendation[] }>('/api/recommend-combinations', { orders, operation, candidates })
 
-export const analyzeCargoRisk = (orders: CargoOrder[], loadingOrderIds: string[]) =>
-  post<{ risk: CargoRisk }>('/api/analyze-cargo-risk', { orders, loadingOrderIds })
-
 export const extractOrderPreferences = (transcript: string) =>
   post<{ preferences: OrderPreferences }>('/api/extract-order-preferences', { transcript })
