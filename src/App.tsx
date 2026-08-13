@@ -8,13 +8,15 @@ import OrderPage from './pages/OrderPage'
 import './App.css'
 
 function App() {
+  const [started, setStarted] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
-  return <AppDataProvider><div className="phone-stage"><div className="phone-shell"><StatusBar/><main className="page-content">
+  const [myDetailOpen, setMyDetailOpen] = useState(false)
+  return <AppDataProvider><div className="phone-stage"><div className={`phone-shell ${!started ? 'cover-shell' : ''}`}>{!started ? <section className="app-cover"><div className="cover-brand"><span className="cover-truck" role="img" aria-label="화물 트럭">🚚</span><h1>Space-Fit</h1></div><button type="button" onClick={() => setStarted(true)}>시작하기</button></section> : <><StatusBar/><main className="page-content">
     {activeTab === 'home' && <HomePage onNavigate={setActiveTab}/>}
     {activeTab === 'order' && <OrderPage/>}
     {activeTab === 'earnings' && <EarningsPage/>}
-    {activeTab === 'my' && <MyPage/>}
-  </main>{activeTab !== 'order' && <BottomNav active={activeTab} onChange={setActiveTab}/>}</div></div></AppDataProvider>
+    {activeTab === 'my' && <MyPage onDetailChange={setMyDetailOpen}/>}
+  </main>{activeTab !== 'order' && !myDetailOpen && <BottomNav active={activeTab} onChange={(tab) => { setMyDetailOpen(false); setActiveTab(tab) }}/>}</>}</div></div></AppDataProvider>
 }
 
 export default App
