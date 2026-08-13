@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import KakaoRouteMap, { type RouteStop } from '../components/KakaoRouteMap'
+import KakaoLiveNavigationMap, { type NavigationRouteInfo } from '../components/KakaoLiveNavigationMap'
 import './pages.css'
 import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
 import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
@@ -257,7 +258,7 @@ function ComboRouteView({ combo, onBack }: { combo: RecommendedCombination; onBa
   )
 }
 
-function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack: () => void }) {
+function ComboDetail({ combo, onBack, onAccept }: { combo: RecommendedCombination; onBack: () => void; onAccept: () => void }) {
   const totalPrice = combo.orders.reduce((sum, order) => sum + order.price, 0)
   const totalWeight = combo.orders.reduce((sum, order) => sum + order.weight, 0)
   const loadRate = Math.round((totalWeight / VEHICLE_MAX_WEIGHT_KG) * 100)
@@ -325,7 +326,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
         </section>
       )}
       <div className="detail-accept-bar">
-        <button type="button" className="accept-button">이 조합 수락하기</button>
+        <button type="button" className="accept-button" onClick={onAccept}>이 조합 수락하기</button>
       </div>
     </div>
   )
@@ -371,9 +372,114 @@ function LoadingScreen({ ready, onDone }: { ready: boolean; onDone: () => void }
   )
 }
 
+function arrowForGuidance(guidance: string) {
+  if (guidance.includes('우회전')) return '↱'
+  if (guidance.includes('좌회전')) return '↰'
+  if (guidance.includes('유턴')) return '↩'
+  if (guidance.includes('도착')) return '●'
+  return '↑'
+}
+
+function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination; onBack: () => void }) {
+  const [routeInfo, setRouteInfo] = useState<NavigationRouteInfo | null>(null)
+  const [arrivedConfirmed, setArrivedConfirmed] = useState(false)
+  const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const activeOrder = combo.orders[0]
+  const totalStops = combo.orders.length
+  const arrived = arrivedConfirmed || (routeInfo?.arrived ?? false)
+
+  return (
+    <div className="screen live-nav-screen">
+      <header className="live-nav-header">
+        <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
+        <div className="live-nav-header-text">
+          <span className="live-nav-badge">● GPS 실시간 운행 중</span>
+          <h1>묶음 운송 1/{totalStops}</h1>
+        </div>
+        {routeInfo && (
+          <div className="live-nav-eta">
+            <strong>{(routeInfo.distanceMeters / 1000).toFixed(1)}km</strong>
+            <span>약 {Math.max(1, Math.round(routeInfo.durationSeconds / 60))}분</span>
+          </div>
+        )}
+      </header>
+
+      <div className="live-nav-progress">
+        <span>전체 운송 진행</span>
+        <span>0/{totalStops}건 배송 완료</span>
+      </div>
+      <div className="live-nav-progress-bar"><div style={{ width: '0%' }} /></div>
+
+      <div className={`live-nav-instruction${arrived ? ' arrived' : ''}`}>
+        <span className="live-nav-instruction-icon">{arrived ? '📍' : arrowForGuidance(routeInfo?.nextGuidance ?? '')}</span>
+        <div>
+          {arrived ? (
+            <strong>상차지에 도착했어요</strong>
+          ) : routeInfo ? (
+            <strong>{routeInfo.nextGuidanceDistanceMeters}m 앞 {routeInfo.nextGuidance}</strong>
+          ) : (
+            <strong>다음 목적지 · {activeOrder.name} 상차</strong>
+          )}
+          <span>{routeInfo?.nextRoadName ?? activeOrder.pickup.name}</span>
+        </div>
+      </div>
+
+      <KakaoLiveNavigationMap
+        destination={{ lat: activeOrder.pickup.lat, lng: activeOrder.pickup.lng, name: activeOrder.pickup.name }}
+        onRouteInfoChange={setRouteInfo}
+      />
+
+      {!arrived ? (
+        <section className="live-nav-sequence">
+          <h2>이후 운송 순서</h2>
+          <div className="live-nav-sequence-chips">
+            {combo.orders.map((order, index) => (
+              <span key={order.id} className={index === 0 ? 'active' : ''}>{index === 0 ? '진행' : '대기'} · {order.name}</span>
+            ))}
+          </div>
+        </section>
+      ) : (
+        <section className="live-nav-proof">
+          <h2>상차 증빙</h2>
+          <p>운송 상태 확인을 위해 사진을 등록해 주세요.</p>
+          <button type="button" className="live-nav-photo-button" onClick={() => fileInputRef.current?.click()}>
+            <span className="live-nav-photo-icon">📷</span>
+            <div>
+              <strong>{photoFile ? photoFile.name : '상차 사진 촬영'}</strong>
+              <span>화물과 차량 상태가 함께 보이도록 촬영해 주세요.</span>
+            </div>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            hidden
+            onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
+          />
+        </section>
+      )}
+
+      <div className="live-nav-bottom">
+        {!arrived ? (
+          <button type="button" className="live-nav-confirm-button" onClick={() => setArrivedConfirmed(true)}>
+            상차지 도착 확인
+          </button>
+        ) : (
+          <button type="button" className="live-nav-confirm-button" disabled={!photoFile} onClick={() => fileInputRef.current?.click()}>
+            {photoFile ? '상차 사진 다시 촬영' : '상차 사진 촬영'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function OrderPage() {
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
-  const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route'>('loading')
+  const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route' | 'navigation'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
   const [selectedId, setSelectedId] = useState(fallbackCombinations[0]?.id ?? '')
   const [preferences, setPreferences] = useState<OrderPreferences | null>(null)
@@ -441,12 +547,17 @@ function OrderPage() {
 
   if (view === 'detail') {
     if (!selected) return null
-    return <ComboDetail combo={selected} onBack={() => setView('list')} />
+    return <ComboDetail combo={selected} onBack={() => setView('list')} onAccept={() => setView('navigation')} />
   }
 
   if (view === 'route') {
     if (!selected) return null
     return <ComboRouteView combo={selected} onBack={() => setView('list')} />
+  }
+
+  if (view === 'navigation') {
+    if (!selected) return null
+    return <PickupNavigationView combo={selected} onBack={() => setView('detail')} />
   }
 
   return (
