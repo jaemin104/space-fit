@@ -133,11 +133,10 @@ const designExamples: RecommendedCombination[] = [
 const ordersById = new Map(mockOrders.map((order) => [order.id, order]))
 const allCandidates = buildCandidateCombinations(mockOrders, driverOperation)
 
-function riskTone(level: AiCargoRisk['level']): CargoRisk {
-  return level === 'low' ? 'safe' : level === 'medium' ? 'caution' : 'danger'
-}
-
 function toRouteItem(order: CargoOrder, overallRisk: AiCargoRisk): RouteItem {
+  const isFragile = order.riskTags.includes('fragile')
+  const needsCaution = order.riskTags.includes('food') || order.riskTags.includes('chemical') || order.riskTags.includes('odor')
+  const tone: CargoRisk = isFragile && overallRisk.level === 'high' ? 'danger' : needsCaution && overallRisk.level !== 'low' ? 'caution' : 'safe'
   return {
     id: order.id,
     name: order.cargoType,
@@ -146,9 +145,9 @@ function toRouteItem(order: CargoOrder, overallRisk: AiCargoRisk): RouteItem {
     volume: order.volumeM3,
     weight: Math.round(order.weightTon * 1000),
     price: order.price,
-    risk: riskTone(overallRisk.level),
+    risk: tone,
     riskNote: overallRisk.reason,
-    riskFlag: overallRisk.warnings.join(' · ') || undefined,
+    riskFlag: tone === 'danger' ? '파손 위험 · 최상단 적재 필요' : tone === 'caution' ? overallRisk.warnings[0] : undefined,
   }
 }
 
@@ -239,32 +238,20 @@ function ComboCard({
   onOpenRoute: () => void
   onOpenDetail: () => void
 }) {
+  const destinations = [...new Set(combo.orders.map((order) => order.dropoff.name.split('시 ')[0].replace('시', '')))].join('·')
+  const cargoNames = combo.orders.map((order) => order.name).join(' · ')
   return (
     <article className="combo-card">
       <header className="combo-card-head">
         <div>
-          <h3>{combo.title}</h3>
-          <span className="combo-count">{combo.orders.length}건 묶음</span>
+          <span className="combo-kicker">{combo.title}</span>
+          <h3>{destinations}</h3>
         </div>
-        {combo.aiRecommended && <span className="ai-badge">AI 추천</span>}
+        <strong className="combo-price">{combo.expectedNetProfit.toLocaleString()}원</strong>
       </header>
-      <div className="combo-metrics">
-        <div><span>추가 거리</span><strong>+{combo.extraDistanceKm}km</strong></div>
-        <div><span>추가 시간</span><strong>+{combo.extraTimeMin}분</strong></div>
-        <div><span>예상 순수익</span><strong className="profit">{combo.expectedNetProfit.toLocaleString()}원</strong></div>
-      </div>
-      <div className="combo-load-rates">
-        <div className="load-rate">
-          <span>부피</span>
-          <div className="load-bar"><div style={{ width: `${combo.volumeLoadRate}%` }} /></div>
-          <strong>{combo.volumeLoadRate}%</strong>
-        </div>
-        <div className="load-rate">
-          <span>중량</span>
-          <div className="load-bar"><div style={{ width: `${combo.weightLoadRate}%` }} /></div>
-          <strong>{combo.weightLoadRate}%</strong>
-        </div>
-      </div>
+      <p className="combo-cargo-names">{cargoNames}</p>
+      <div className="combo-load-summary"><span>적재율 {combo.weightLoadRate}%</span><span>우회 {combo.extraTimeMin}분</span></div>
+      <div className="combo-progress"><span style={{ width: `${combo.weightLoadRate}%` }} /></div>
       <div className="combo-actions">
         <button type="button" className="combo-action-outline" onClick={onOpenRoute}>경로 보기</button>
         <button type="button" className="combo-action-solid" onClick={onOpenDetail}>상세보기</button>
@@ -297,6 +284,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
   const totalWeight = combo.orders.reduce((sum, order) => sum + order.weight, 0)
   const loadRate = Math.round((totalWeight / VEHICLE_MAX_WEIGHT_KG) * 100)
   const topLoadOrder = combo.orders.find((order) => order.risk === 'danger')
+  const orderedOrders = [...combo.orders].sort((a, b) => Number(a.risk === 'danger') - Number(b.risk === 'danger'))
 
   return (
     <div className="screen order-detail-screen">
@@ -314,8 +302,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
       </section>
       <section className="combo-detail-orders">
         <h2>조합에 포함된 오더</h2>
-        {combo.overallRisk && <div className={`ai-risk-summary risk-${riskTone(combo.overallRisk.level)}`}><strong>◆ 혼적판단 AI · {combo.overallRisk.level.toUpperCase()}</strong><span>{combo.overallRisk.reason}</span>{combo.overallRisk.warnings.map((warning) => <em key={warning}>{warning}</em>)}</div>}
-        {combo.orders.map((order, index) => (
+        {orderedOrders.map((order, index) => (
           <article key={order.id} className={`detail-order-card risk-${order.risk}`}>
             <div className="detail-order-head">
               <span className={`order-letter risk-${order.risk}`}>{String.fromCharCode(65 + index)}</span>
@@ -339,7 +326,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
           <div className="load-order-box">
             <span className="load-order-hint">먼저 싣는 순서 → 가장 먼저 내리는 순서</span>
             <div className="load-order-steps">
-              {combo.orders.map((order, index) => (
+              {orderedOrders.map((order, index) => (
                 <Fragment key={order.id}>
                   {index > 0 && <span className="load-order-arrow">→</span>}
                   <div className={`load-order-step${order.id === topLoadOrder.id ? ' top' : ''}`}>
@@ -350,7 +337,7 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
                 </Fragment>
               ))}
             </div>
-            <p className="load-order-note">{withTopicParticle(topLoadOrder.name)} 파손 방지를 위해 다른 화물 위, 최상단에 적재해주세요.</p>
+            <p className="load-order-note">{withTopicParticle(topLoadOrder.name)} 파손 방지를 위해 다른 화물 위, 최상단에 적재해 주세요.</p>
           </div>
         </section>
       )}
@@ -367,17 +354,18 @@ const loadingSteps = [
   { title: '목표에 맞는 조합 계산', note: '우회 거리와 예상 순수익을 비교' },
 ]
 
-function LoadingScreen({ onDone }: { onDone: () => void }) {
+function LoadingScreen({ ready, onDone }: { ready: boolean; onDone: () => void }) {
   const [step, setStep] = useState(0)
 
   useEffect(() => {
-    if (step >= loadingSteps.length) {
+    if (step >= loadingSteps.length && ready) {
       const finish = setTimeout(onDone, 500)
       return () => clearTimeout(finish)
     }
+    if (step >= loadingSteps.length) return
     const advance = setTimeout(() => setStep((current) => current + 1), 700)
     return () => clearTimeout(advance)
-  }, [step, onDone])
+  }, [step, ready, onDone])
 
   return (
     <div className="screen order-loading-screen">
@@ -406,9 +394,7 @@ function OrderPage() {
   const [combinations, setCombinations] = useState(fallbackCombinations)
   const [selectedId, setSelectedId] = useState(fallbackCombinations[0]?.id ?? '')
   const [preferences, setPreferences] = useState<OrderPreferences | null>(null)
-  const [transcript, setTranscript] = useState('')
-  const [aiStatus, setAiStatus] = useState<'idle' | 'loading' | 'ready' | 'fallback'>('idle')
-  const [aiMessage, setAiMessage] = useState('')
+  const [recommendationsReady, setRecommendationsReady] = useState(false)
 
   const selected = combinations.find((combo) => combo.id === selectedId) ?? combinations[0]
 
@@ -421,12 +407,10 @@ function OrderPage() {
       if (!active) return
       if (!candidates.length) {
         setCombinations([])
-        setAiStatus('fallback')
-        setAiMessage('말씀하신 조건에 맞는 후보가 없어요. 조건을 조금 넓혀주세요.')
-        setView('list')
+        setRecommendationsReady(true)
         return
       }
-      setAiStatus('loading')
+      setRecommendationsReady(false)
       setView('loading')
       recommendCargoCombinations(mockOrders, driverOperation, candidates).then(({ recommendations }) => {
       if (!active) return
@@ -438,16 +422,14 @@ function OrderPage() {
       const resolved = next.length ? next : candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
       setCombinations(resolved)
       setSelectedId(resolved[0]?.id ?? '')
-      setAiStatus(next.length ? 'ready' : 'fallback')
-      setAiMessage(next.length ? 'Gemini가 수익·거리·혼적 안전성을 비교했어요.' : 'AI 응답을 확인하지 못해 안전한 로컬 추천을 보여드려요.')
-    }).catch((error) => {
+      setRecommendationsReady(true)
+    }).catch(() => {
       if (!active) return
       const resolved = candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
       setCombinations(resolved)
       setSelectedId(resolved[0]?.id ?? '')
-      setAiStatus('fallback')
-      setAiMessage(error instanceof Error ? `${error.message} · 로컬 추천을 표시합니다.` : '로컬 추천을 표시합니다.')
-      }).finally(() => { if (active) setView('list') })
+      setRecommendationsReady(true)
+      })
     }
     void loadRecommendations()
     return () => { active = false }
@@ -463,15 +445,15 @@ function OrderPage() {
   }
 
   if (entry === 'voice') {
-    return <VoiceOrderPreferences onComplete={(nextPreferences, nextTranscript) => {
+    return <VoiceOrderPreferences onComplete={(nextPreferences) => {
       setPreferences(nextPreferences)
-      setTranscript(nextTranscript)
+      setRecommendationsReady(false)
       setEntry('recommendations')
     }}/>
   }
 
   if (view === 'loading') {
-    return <LoadingScreen onDone={() => setView('list')} />
+    return <LoadingScreen ready={recommendationsReady} onDone={() => setView('list')} />
   }
 
   if (view === 'detail') {
@@ -486,9 +468,8 @@ function OrderPage() {
 
   return (
     <div className="screen order-screen">
-      <header className="plain-title"><h1>오늘의 추천 오더</h1></header>
-      <div className="voice-condition-summary"><div><span>말씀하신 조건</span><strong>{preferences?.summary || transcript}</strong></div><button type="button" onClick={() => setEntry('voice')}>다시 말하기</button></div>
-      <div className={`recommendation-status ${aiStatus}`}>{aiMessage}</div>
+      <header className="recommendation-header"><button type="button" onClick={() => setEntry('voice')} aria-label="운행 목표로 돌아가기">‹</button><h1>추천 오더</h1></header>
+      <h2 className="recommendation-count">추천 묶음 {combinations.length}개</h2>
       {!combinations.length && <div className="empty-combinations"><strong>조건에 맞는 조합이 없어요</strong><span>시간·거리·최소 운임 조건을 넓혀 다시 말해보세요.</span><button type="button" onClick={() => setEntry('voice')}>조건 다시 말하기</button></div>}
       <div className="combo-list">
         {combinations.map((combo) => (
@@ -500,6 +481,7 @@ function OrderPage() {
           />
         ))}
       </div>
+      {combinations.length > 0 && <div className="best-combo-action"><button type="button" onClick={() => openDetail(combinations[0])}>최적조합 상세보기</button></div>}
     </div>
   )
 }

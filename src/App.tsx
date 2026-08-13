@@ -14,7 +14,7 @@ function App() {
     {activeTab === 'order' && <OrderPage/>}
     {activeTab === 'earnings' && <EarningsPage/>}
     {activeTab === 'my' && <MyPage/>}
-  </main><BottomNav active={activeTab} onChange={setActiveTab}/></div></div></AppDataProvider>
+  </main>{activeTab !== 'order' && <BottomNav active={activeTab} onChange={setActiveTab}/>}</div></div></AppDataProvider>
 }
 
 export default App
