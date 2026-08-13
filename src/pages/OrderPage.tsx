@@ -6,6 +6,7 @@ import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
 import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
 import { buildCandidateCombinations, type CandidateCombination, type CargoRisk as AiCargoRisk } from '../utils/cargoRecommendation'
 import { analyzeCargoRisk, recommendCargoCombinations, type OrderPreferences } from '../utils/fetchCargoAi'
+import { useAppData } from '../context/useAppData'
 
 type CargoRisk = 'safe' | 'caution' | 'danger'
 
@@ -208,29 +209,52 @@ function buildRouteStops(combination: RecommendedCombination): RouteStop[] {
   ])
 }
 
+function getRegionName(location: string) {
+  return location.split(' ')[0].replace(/(특별시|광역시|특별자치시|시|군|구)$/u, '')
+}
+
+function getCombinationRouteTitle(combo: RecommendedCombination, returnDestination: string) {
+  const home = getRegionName(returnDestination)
+  const waypoints = [...new Set(combo.orders.flatMap((order) => [getRegionName(order.pickup.name), getRegionName(order.dropoff.name)]))].filter((region) => region !== home)
+  return [home, ...waypoints, home].join(' → ')
+}
+
 function ComboCard({
   combo,
+  routeTitle,
   onOpenRoute,
   onOpenDetail,
 }: {
   combo: RecommendedCombination
+  routeTitle: string
   onOpenRoute: () => void
   onOpenDetail: () => void
 }) {
-  const destinations = [...new Set(combo.orders.map((order) => order.dropoff.name.split('시 ')[0].replace('시', '')))].join('·')
-  const cargoNames = combo.orders.map((order) => order.name).join(' · ')
   return (
     <article className="combo-card">
       <header className="combo-card-head">
         <div>
-          <span className="combo-kicker">{combo.title}</span>
-          <h3>{destinations}</h3>
+          <h3>{routeTitle}</h3>
         </div>
-        <strong className="combo-price">{combo.expectedNetProfit.toLocaleString()}원</strong>
+        {combo.aiRecommended && <span className="ai-badge">AI 추천</span>}
       </header>
-      <p className="combo-cargo-names">{cargoNames}</p>
-      <div className="combo-load-summary"><span>적재율 {combo.weightLoadRate}%</span><span>우회 {combo.extraTimeMin}분</span></div>
-      <div className="combo-progress"><span style={{ width: `${combo.weightLoadRate}%` }} /></div>
+      <div className="combo-metrics">
+        <div><span>추가 거리</span><strong>+{combo.extraDistanceKm}km</strong></div>
+        <div><span>추가 시간</span><strong>+{combo.extraTimeMin}분</strong></div>
+        <div><span>예상 순수익</span><strong className="profit">{combo.expectedNetProfit.toLocaleString()}원</strong></div>
+      </div>
+      <div className="combo-load-rates">
+        <div className="load-rate">
+          <span>부피</span>
+          <div className="load-bar"><div style={{ width: `${combo.volumeLoadRate}%` }} /></div>
+          <strong>{combo.volumeLoadRate}%</strong>
+        </div>
+        <div className="load-rate">
+          <span>중량</span>
+          <div className="load-bar"><div style={{ width: `${combo.weightLoadRate}%` }} /></div>
+          <strong>{combo.weightLoadRate}%</strong>
+        </div>
+      </div>
       <div className="combo-actions">
         <button type="button" className="combo-action-outline" onClick={onOpenRoute}>경로 보기</button>
         <button type="button" className="combo-action-solid" onClick={onOpenDetail}>상세보기</button>
@@ -239,12 +263,12 @@ function ComboCard({
   )
 }
 
-function ComboRouteView({ combo, onBack }: { combo: RecommendedCombination; onBack: () => void }) {
+function ComboRouteView({ combo, routeTitle, onBack }: { combo: RecommendedCombination; routeTitle: string; onBack: () => void }) {
   return (
     <div className="screen order-detail-screen">
       <header className="detail-header">
         <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
-        <h1>{combo.title} 경로</h1>
+        <h1>{routeTitle}</h1>
       </header>
       <KakaoRouteMap key={combo.id} stops={buildRouteStops(combo)} />
       <section className="combo-detail-summary">
@@ -477,7 +501,8 @@ function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination
   )
 }
 
-function OrderPage() {
+function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
+  const { driver } = useAppData()
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
   const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route' | 'navigation'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
@@ -486,6 +511,7 @@ function OrderPage() {
   const [recommendationsReady, setRecommendationsReady] = useState(false)
 
   const selected = combinations.find((combo) => combo.id === selectedId) ?? combinations[0]
+  const selectedRouteTitle = selected ? getCombinationRouteTitle(selected, driver.returnDestination) : ''
 
   useEffect(() => {
     if (!preferences || entry !== 'recommendations') return
@@ -534,7 +560,7 @@ function OrderPage() {
   }
 
   if (entry === 'voice') {
-    return <VoiceOrderPreferences onComplete={(nextPreferences) => {
+    return <VoiceOrderPreferences onBack={onBackToHome} onComplete={(nextPreferences) => {
       setPreferences(nextPreferences)
       setRecommendationsReady(false)
       setEntry('recommendations')
@@ -552,7 +578,7 @@ function OrderPage() {
 
   if (view === 'route') {
     if (!selected) return null
-    return <ComboRouteView combo={selected} onBack={() => setView('list')} />
+    return <ComboRouteView combo={selected} routeTitle={selectedRouteTitle} onBack={() => setView('list')} />
   }
 
   if (view === 'navigation') {
@@ -562,20 +588,19 @@ function OrderPage() {
 
   return (
     <div className="screen order-screen">
-      <header className="recommendation-header"><button type="button" onClick={() => setEntry('voice')} aria-label="운행 목표로 돌아가기">‹</button><h1>추천 오더</h1></header>
-      <h2 className="recommendation-count">추천 묶음 {combinations.length}개</h2>
+      <header className="plain-title order-legacy-title"><button className="order-back-button" type="button" onClick={() => setEntry('voice')} aria-label="AI 운행 조건 화면으로 돌아가기">‹</button><h1>오늘의 추천 오더</h1></header>
       {!combinations.length && <div className="empty-combinations"><strong>조건에 맞는 조합이 없어요</strong><span>시간·거리·최소 운임 조건을 넓혀 다시 말해보세요.</span><button type="button" onClick={() => setEntry('voice')}>조건 다시 말하기</button></div>}
       <div className="combo-list">
         {combinations.map((combo) => (
           <ComboCard
             key={combo.id}
             combo={combo}
+            routeTitle={getCombinationRouteTitle(combo, driver.returnDestination)}
             onOpenRoute={() => { setSelectedId(combo.id); setView('route') }}
             onOpenDetail={() => openDetail(combo)}
           />
         ))}
       </div>
-      {combinations.length > 0 && <div className="best-combo-action"><button type="button" onClick={() => openDetail(combinations[0])}>최적조합 상세보기</button></div>}
     </div>
   )
 }
