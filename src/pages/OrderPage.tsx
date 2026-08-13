@@ -470,7 +470,7 @@ function PickupNavigationView({
 
       <div className="live-nav-map-frame">
         <KakaoLiveNavigationMap
-          destination={{ lat: order.pickup.lat, lng: order.pickup.lng, name: order.pickup.name }}
+          destination={{ lat: order.pickup.lat, lng: order.pickup.lng, name: order.pickup.name, kind: 'pickup' }}
           onRouteInfoChange={setRouteInfo}
           dimmed={arrived}
         />
@@ -541,9 +541,10 @@ function DropoffProgressView({
   onDropoffComplete: () => void
 }) {
   const [routeInfo, setRouteInfo] = useState<NavigationRouteInfo | null>(null)
+  const [manualArrived, setManualArrived] = useState(false)
   const [dropoffPhoto, setDropoffPhoto] = useState<File | null>(null)
   const photoPreviewUrl = usePhotoPreview(dropoffPhoto)
-  const arrived = routeInfo?.arrived ?? false
+  const arrived = manualArrived || (routeInfo?.arrived ?? false)
   const isLastOrder = orderIndex + 1 >= totalOrders
 
   return (
@@ -571,7 +572,7 @@ function DropoffProgressView({
 
       <div className="live-nav-map-frame">
         <KakaoLiveNavigationMap
-          destination={{ lat: order.dropoff.lat, lng: order.dropoff.lng, name: order.dropoff.name }}
+          destination={{ lat: order.dropoff.lat, lng: order.dropoff.lng, name: order.dropoff.name, kind: 'dropoff' }}
           onRouteInfoChange={setRouteInfo}
           dimmed={arrived}
         />
@@ -610,8 +611,8 @@ function DropoffProgressView({
 
       <div className="live-nav-bottom">
         {!arrived ? (
-          <button type="button" className="live-nav-confirm-button" disabled>
-            하차 완료 · 다음 화물로 이동
+          <button type="button" className="live-nav-confirm-button" onClick={() => setManualArrived(true)}>
+            하차지 도착 확인
           </button>
         ) : !dropoffPhoto ? (
           <PhotoPicker label="하차 사진 촬영" onSelect={setDropoffPhoto} />

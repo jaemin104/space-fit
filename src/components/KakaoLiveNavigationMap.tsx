@@ -15,6 +15,7 @@ interface NavigationDestination {
   lat: number
   lng: number
   name: string
+  kind?: 'pickup' | 'dropoff'
 }
 
 interface KakaoLiveNavigationMapProps {
@@ -69,9 +70,10 @@ function KakaoLiveNavigationMap({ destination, onRouteInfoChange, dimmed }: Kaka
         })
         mapRef.current = map
 
+        const destLabel = destination.kind === 'dropoff' ? '하차지' : '상차지'
         const destOverlay = new kakaoSdk.maps.CustomOverlay({
           position: new kakaoSdk.maps.LatLng(destination.lat, destination.lng),
-          content: '<div class="live-nav-marker dest"><span>상차지</span></div>',
+          content: `<div class="live-nav-marker dest"><span>${destLabel}</span></div>`,
           yAnchor: 1.6,
         })
         destOverlay.setMap(map)
@@ -86,7 +88,7 @@ function KakaoLiveNavigationMap({ destination, onRouteInfoChange, dimmed }: Kaka
     return () => {
       cancelled = true
     }
-  }, [destination.lat, destination.lng])
+  }, [destination.lat, destination.lng, destination.kind])
 
   useEffect(() => {
     if (!('geolocation' in navigator)) return
