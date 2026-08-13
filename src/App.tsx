@@ -5,13 +5,14 @@ import HomePage from './pages/HomePage'
 import EarningsPage from './pages/EarningsPage'
 import MyPage from './pages/MyPage'
 import OrderPage from './pages/OrderPage'
+import coverTruck from './assets/cover-truck.png'
 import './App.css'
 
 function App() {
   const [started, setStarted] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('home')
   const [myDetailOpen, setMyDetailOpen] = useState(false)
-  return <AppDataProvider><div className="phone-stage"><div className={`phone-shell ${!started ? 'cover-shell' : ''}`}>{!started ? <section className="app-cover"><div className="cover-brand"><span className="cover-truck" role="img" aria-label="화물 트럭">🚚</span><h1>Space-Fit</h1></div><button type="button" onClick={() => setStarted(true)}>시작하기</button></section> : <><StatusBar/><main className="page-content">
+  return <AppDataProvider><div className="phone-stage"><div className={`phone-shell ${!started ? 'cover-shell' : ''}`}>{!started ? <section className="app-cover"><div className="cover-brand"><img className="cover-truck" src={coverTruck} alt="화물 트럭"/><h1>Space-Fit</h1></div><button type="button" onClick={() => setStarted(true)}>시작하기</button></section> : <><StatusBar/><main className="page-content">
     {activeTab === 'home' && <HomePage onNavigate={setActiveTab}/>}
     {activeTab === 'order' && <OrderPage onBackToHome={() => setActiveTab('home')}/>}
     {activeTab === 'earnings' && <EarningsPage/>}
