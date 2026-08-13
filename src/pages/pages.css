@@ -35,11 +35,18 @@
 .combo-action-outline{border:1px solid var(--border);background:#fff;color:var(--text)}
 .combo-action-solid{border:0;background:var(--yellow2);color:var(--text)}
 
-.route-map{width:100%;height:280px}
+.kakao-route-wrap{position:relative;width:100%;height:280px;background:var(--surface2)}
+.kakao-route-canvas{width:100%;height:100%}
+.kakao-route-wrap.fullscreen{position:fixed;inset:0;z-index:50;height:100dvh}
+.kakao-route-status{position:absolute;inset:0;z-index:20;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.85);font-size:13px;color:var(--muted);text-align:center;padding:16px}
+.kakao-route-status.error{color:#dc2626}
+.kakao-route-summary{position:absolute;left:12px;bottom:12px;z-index:20;background:rgba(255,255,255,.92);border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,.12)}
+.kakao-route-toggle{position:absolute;left:12px;top:12px;z-index:20;border:0;border-radius:999px;padding:10px 16px;background:#fff;font-size:14px;font-weight:600;color:var(--text);cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.18)}
 
 .order-detail-screen{padding-bottom:20px}
 .detail-header{display:flex;align-items:center;gap:12px;padding:8px 16px 12px}
-.detail-header h1{font-size:19px;margin:0;line-height:1.3}
+.detail-header h1{flex:1;min-width:0;font-size:19px;margin:0;line-height:1.3}
+.map-preview-button{flex:none;border:1px solid var(--border);border-radius:999px;padding:8px 12px;background:#fff;font-size:12px;font-weight:600;color:var(--text);cursor:pointer}
 .back-button{flex:none;width:34px;height:34px;border:0;border-radius:50%;background:var(--surface2);font-size:17px;cursor:pointer}
 
 .combo-detail-summary{padding:16px 24px 4px}
@@ -86,9 +93,9 @@
 .detail-accept-bar{padding:16px}
 .accept-button{width:100%;border:0;border-radius:14px;padding:15px;background:var(--yellow2);font-weight:800;font-size:16px;cursor:pointer}
 
-.route-marker{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:10px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)}
-.route-marker.pickup{background:#2563eb}
-.route-marker.dropoff{background:#f97316}
+.kakao-route-marker{display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;font-size:10px;font-weight:700;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.25)}
+.kakao-route-marker.pickup{background:#2563eb}
+.kakao-route-marker.dropoff{background:#f97316}
 
 /* order loading screen */
 .order-loading-screen{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 28px 24px}

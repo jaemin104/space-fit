@@ -1,7 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
-import { MapContainer, TileLayer, Marker, Polyline, Popup } from 'react-leaflet'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
+import KakaoRouteMap, { type RouteStop } from '../components/KakaoRouteMap'
 import './pages.css'
 
 type CargoRisk = 'safe' | 'caution' | 'danger'
@@ -131,45 +129,25 @@ function withTopicParticle(word: string) {
   return `${word}${hasBatchim ? '은' : '는'}`
 }
 
-function makePointIcon(label: string, tone: 'pickup' | 'dropoff') {
-  return L.divIcon({
-    className: `route-marker ${tone}`,
-    html: `<span>${label}</span>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-  })
-}
-
-function RouteMap({ combination }: { combination: RecommendedCombination }) {
-  const positions: [number, number][] = combination.orders.flatMap((order) => [
-    [order.pickup.lat, order.pickup.lng],
-    [order.dropoff.lat, order.dropoff.lng],
+function buildRouteStops(combination: RecommendedCombination): RouteStop[] {
+  return combination.orders.flatMap((order, index) => [
+    {
+      id: `${order.id}-pickup`,
+      name: order.pickup.name,
+      lat: order.pickup.lat,
+      lng: order.pickup.lng,
+      kind: 'pickup' as const,
+      label: `상${index + 1}`,
+    },
+    {
+      id: `${order.id}-dropoff`,
+      name: order.dropoff.name,
+      lat: order.dropoff.lat,
+      lng: order.dropoff.lng,
+      kind: 'dropoff' as const,
+      label: `하${index + 1}`,
+    },
   ])
-
-  return (
-    <MapContainer
-      className="route-map"
-      bounds={positions}
-      boundsOptions={{ padding: [28, 28] }}
-      scrollWheelZoom={false}
-    >
-      <TileLayer
-        attribution="&copy; OpenStreetMap contributors"
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
-      <Polyline positions={positions} pathOptions={{ color: '#f5b301', weight: 4 }} />
-      {combination.orders.map((order, index) => (
-        <Fragment key={order.id}>
-          <Marker position={[order.pickup.lat, order.pickup.lng]} icon={makePointIcon(`상${index + 1}`, 'pickup')}>
-            <Popup>{index + 1}번 상차지 · {order.pickup.name}</Popup>
-          </Marker>
-          <Marker position={[order.dropoff.lat, order.dropoff.lng]} icon={makePointIcon(`하${index + 1}`, 'dropoff')}>
-            <Popup>{index + 1}번 하차지 · {order.dropoff.name}</Popup>
-          </Marker>
-        </Fragment>
-      ))}
-    </MapContainer>
-  )
 }
 
 function ComboCard({
@@ -222,7 +200,7 @@ function ComboRouteView({ combo, onBack }: { combo: RecommendedCombination; onBa
         <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
         <h1>{combo.title} 경로</h1>
       </header>
-      <RouteMap combination={combo} />
+      <KakaoRouteMap key={combo.id} stops={buildRouteStops(combo)} />
       <section className="combo-detail-summary">
         <div className="combo-metrics">
           <div><span>추가 거리</span><strong>+{combo.extraDistanceKm}km</strong></div>
@@ -239,13 +217,18 @@ function ComboDetail({ combo, onBack }: { combo: RecommendedCombination; onBack:
   const totalWeight = combo.orders.reduce((sum, order) => sum + order.weight, 0)
   const loadRate = Math.round((totalWeight / VEHICLE_MAX_WEIGHT_KG) * 100)
   const topLoadOrder = combo.orders.find((order) => order.risk === 'danger')
+  const [showMap, setShowMap] = useState(false)
 
   return (
     <div className="screen order-detail-screen">
       <header className="detail-header">
         <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
         <h1>조합 상세</h1>
+        <button type="button" className="map-preview-button" onClick={() => setShowMap(true)}>지도 전체보기</button>
       </header>
+      {showMap && (
+        <KakaoRouteMap stops={buildRouteStops(combo)} initialFullscreen onClose={() => setShowMap(false)} />
+      )}
       <section className="detail-hero">
         <span>{combo.orders.length}건 묶음 운송</span>
         <strong>{totalPrice.toLocaleString()}원</strong>
