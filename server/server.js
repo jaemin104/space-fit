@@ -1,10 +1,9 @@
 import { createServer } from 'node:http'
-import { analyzeRiskWithGemini, ApiError, extractOrderPreferencesWithGemini, recommendWithGemini } from './cargoAi.js'
+import { ApiError, extractOrderPreferencesWithGemini, recommendWithGemini } from './cargoAi.js'
 
 const port = Number(process.env.SERVER_PORT ?? 3001)
 const endpoints = new Map([
   ['/api/recommend-combinations', recommendWithGemini],
-  ['/api/analyze-cargo-risk', analyzeRiskWithGemini],
   ['/api/extract-order-preferences', extractOrderPreferencesWithGemini],
 ])
 

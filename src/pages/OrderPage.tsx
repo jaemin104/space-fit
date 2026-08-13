@@ -1,13 +1,13 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import KakaoRouteMap, { type RouteStop } from '../components/KakaoRouteMap'
 import KakaoLiveNavigationMap, { type NavigationRouteInfo } from '../components/KakaoLiveNavigationMap'
 import PhotoPicker from '../components/PhotoPicker'
 import { usePhotoPreview } from '../utils/usePhotoPreview'
 import './pages.css'
 import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
-import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
+import { driverOperation, mockOrders, nearestHub, resolveLocation, type CargoOrder, type DriverOperation } from '../data/mockOrders'
 import { buildCandidateCombinations, type CandidateCombination, type CargoRisk as AiCargoRisk } from '../utils/cargoRecommendation'
-import { analyzeCargoRisk, recommendCargoCombinations, type OrderPreferences } from '../utils/fetchCargoAi'
+import { recommendCargoCombinations, type OrderPreferences } from '../utils/fetchCargoAi'
 import { useAppData } from '../context/useAppData'
 
 type CargoRisk = 'safe' | 'caution' | 'danger'
@@ -153,28 +153,27 @@ function toRouteItem(order: CargoOrder, overallRisk: AiCargoRisk): RouteItem {
   }
 }
 
-function toCombination(candidate: CandidateCombination, index: number, ai?: { title: string; reason: string; risk: AiCargoRisk }): RecommendedCombination {
+function toCombination(candidate: CandidateCombination, index: number, ai?: { title: string; reason: string; risk: AiCargoRisk }, operation: DriverOperation = driverOperation): RecommendedCombination {
   const risk = ai?.risk ?? candidate.risk
   const orders = candidate.orderIds.map((id) => ordersById.get(id)).filter((order): order is CargoOrder => Boolean(order))
   return {
     id: `candidate-${candidate.id}-${index}`,
     title: ai?.title ?? `${orders.at(-1)?.dropoff.name ?? '복귀'} 방면 추천 조합`,
-    aiRecommended: Boolean(ai),
+    aiRecommended: index === 0,
     extraDistanceKm: candidate.estimatedExtraKm,
-    extraTimeMin: Math.max(5, Math.round(candidate.estimatedExtraKm * 2.6)),
+    extraTimeMin: candidate.estimatedTimeMin,
     expectedNetProfit: candidate.totalPrice,
-    volumeLoadRate: Math.round((driverOperation.currentLoad.volumeM3 + candidate.totalVolumeM3) / driverOperation.vehicle.maxVolumeM3 * 100),
-    weightLoadRate: Math.round((driverOperation.currentLoad.weightTon + candidate.totalWeightTon) / driverOperation.vehicle.maxWeightTon * 100),
+    volumeLoadRate: Math.round((operation.currentLoad.volumeM3 + candidate.totalVolumeM3) / operation.vehicle.maxVolumeM3 * 100),
+    weightLoadRate: Math.round((operation.currentLoad.weightTon + candidate.totalWeightTon) / operation.vehicle.maxWeightTon * 100),
     orders: orders.map((order) => toRouteItem(order, risk)),
     aiReason: ai?.reason,
     overallRisk: risk,
   }
 }
 
-function filterCandidates(preferences: OrderPreferences) {
-  return allCandidates.filter((candidate) => {
-    const minutes = Math.max(5, Math.round(candidate.estimatedExtraKm * 2.6))
-    return (preferences.maxMinutes === null || minutes <= preferences.maxMinutes)
+function filterCandidates(candidates: CandidateCombination[], preferences: OrderPreferences) {
+  return candidates.filter((candidate) => {
+    return (preferences.maxMinutes === null || candidate.estimatedTimeMin <= preferences.maxMinutes)
       && (preferences.maxDistanceKm === null || candidate.estimatedExtraKm <= preferences.maxDistanceKm)
       && (preferences.minPrice === null || candidate.totalPrice >= preferences.minPrice)
   })
@@ -691,6 +690,11 @@ function TransportCompleteView({ combo, onDone }: { combo: RecommendedCombinatio
 
 function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
   const { driver } = useAppData()
+  const operation = useMemo<DriverOperation>(() => {
+    const returnDestination = resolveLocation(driver.returnDestination, driverOperation.returnDestination)
+    return { ...driverOperation, returnDestination, selectedHub: nearestHub(returnDestination) }
+  }, [driver.returnDestination])
+  const candidatesForOperation = useMemo(() => buildCandidateCombinations(mockOrders, operation), [operation])
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
   const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route' | 'navigation' | 'completed'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
@@ -704,7 +708,7 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
   useEffect(() => {
     if (!preferences || entry !== 'recommendations') return
     let active = true
-    const candidates = filterCandidates(preferences)
+    const candidates = filterCandidates(candidatesForOperation, preferences)
     const loadRecommendations = async () => {
       await Promise.resolve()
       if (!active) return
@@ -715,20 +719,22 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
       }
       setRecommendationsReady(false)
       setView('loading')
-      recommendCargoCombinations(mockOrders, driverOperation, candidates).then(({ recommendations }) => {
+      recommendCargoCombinations(mockOrders, operation, candidates).then(({ recommendations }) => {
       if (!active) return
-      const next = recommendations.map((ai, index) => {
+      const next = recommendations.map((ai) => {
         const key = [...ai.orderIds].sort().join('|')
         const candidate = candidates.find((item) => [...item.orderIds].sort().join('|') === key)
-        return candidate ? toCombination(candidate, index, ai) : null
-      }).filter((item): item is RecommendedCombination => Boolean(item))
-      const resolved = next.length ? next : candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
+        return candidate ? { ai, candidate } : null
+      }).filter((item): item is { ai: (typeof recommendations)[number]; candidate: CandidateCombination } => Boolean(item))
+        .sort((a, b) => b.candidate.score - a.candidate.score)
+        .map(({ ai, candidate }, index) => toCombination(candidate, index, ai, operation))
+      const resolved = next.length ? next : candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index, undefined, operation))
       setCombinations(resolved)
       setSelectedId(resolved[0]?.id ?? '')
       setRecommendationsReady(true)
     }).catch(() => {
       if (!active) return
-      const resolved = candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index))
+      const resolved = candidates.slice(0, 3).map((candidate, index) => toCombination(candidate, index, undefined, operation))
       setCombinations(resolved)
       setSelectedId(resolved[0]?.id ?? '')
       setRecommendationsReady(true)
@@ -736,15 +742,11 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
     }
     void loadRecommendations()
     return () => { active = false }
-  }, [entry, preferences])
+  }, [candidatesForOperation, entry, operation, preferences])
 
   const openDetail = (combo: RecommendedCombination) => {
     setSelectedId(combo.id)
     setView('detail')
-    const orders = combo.orders.map((route) => ordersById.get(route.id)).filter((order): order is CargoOrder => Boolean(order))
-    void analyzeCargoRisk(orders, orders.map((order) => order.id)).then(({ risk }) => {
-      setCombinations((current) => current.map((item) => item.id === combo.id ? { ...item, overallRisk: risk, orders: orders.map((order) => toRouteItem(order, risk)) } : item))
-    }).catch(() => undefined)
   }
 
   if (entry === 'voice') {
