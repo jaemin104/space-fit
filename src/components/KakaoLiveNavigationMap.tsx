@@ -20,6 +20,7 @@ interface NavigationDestination {
 interface KakaoLiveNavigationMapProps {
   destination: NavigationDestination
   onRouteInfoChange?: (info: NavigationRouteInfo | null) => void
+  dimmed?: boolean
 }
 
 const ARRIVAL_THRESHOLD_METERS = 60
@@ -39,7 +40,7 @@ function haversineMeters(a: { lat: number; lng: number }, b: { lat: number; lng:
 
 type Status = 'locating' | 'loading' | 'ready' | 'error'
 
-function KakaoLiveNavigationMap({ destination, onRouteInfoChange }: KakaoLiveNavigationMapProps) {
+function KakaoLiveNavigationMap({ destination, onRouteInfoChange, dimmed }: KakaoLiveNavigationMapProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<kakao.maps.Map | null>(null)
   const kakaoSdkRef = useRef<typeof kakao | null>(null)
@@ -184,7 +185,7 @@ function KakaoLiveNavigationMap({ destination, onRouteInfoChange }: KakaoLiveNav
   }, [currentPosition, mapReady])
 
   return (
-    <div className="live-nav-map-wrap">
+    <div className={`live-nav-map-wrap${dimmed ? ' dimmed' : ''}`}>
       <div ref={containerRef} className="live-nav-map-canvas" />
       {(status === 'locating' || status === 'loading') && (
         <div className="live-nav-map-status">

@@ -1,6 +1,8 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import KakaoRouteMap, { type RouteStop } from '../components/KakaoRouteMap'
 import KakaoLiveNavigationMap, { type NavigationRouteInfo } from '../components/KakaoLiveNavigationMap'
+import PhotoPicker from '../components/PhotoPicker'
+import { usePhotoPreview } from '../utils/usePhotoPreview'
 import './pages.css'
 import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
 import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
@@ -404,15 +406,30 @@ function arrowForGuidance(guidance: string) {
   return '↑'
 }
 
-function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination; onBack: () => void }) {
-  const [routeInfo, setRouteInfo] = useState<NavigationRouteInfo | null>(null)
-  const [arrivedConfirmed, setArrivedConfirmed] = useState(false)
-  const [photoFile, setPhotoFile] = useState<File | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+function formatToday() {
+  const today = new Date()
+  return `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}.${String(today.getDate()).padStart(2, '0')}`
+}
 
-  const activeOrder = combo.orders[0]
-  const totalStops = combo.orders.length
-  const arrived = arrivedConfirmed || (routeInfo?.arrived ?? false)
+function PickupNavigationView({
+  combo,
+  order,
+  orderIndex,
+  totalOrders,
+  onBack,
+  onPickupComplete,
+}: {
+  combo: RecommendedCombination
+  order: RouteItem
+  orderIndex: number
+  totalOrders: number
+  onBack: () => void
+  onPickupComplete: () => void
+}) {
+  const [routeInfo, setRouteInfo] = useState<NavigationRouteInfo | null>(null)
+  const [arrived, setArrived] = useState(false)
+  const [pickupPhoto, setPickupPhoto] = useState<File | null>(null)
+  const photoPreviewUrl = usePhotoPreview(pickupPhoto)
 
   return (
     <div className="screen live-nav-screen">
@@ -420,7 +437,7 @@ function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination
         <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
         <div className="live-nav-header-text">
           <span className="live-nav-badge">● GPS 실시간 운행 중</span>
-          <h1>묶음 운송 1/{totalStops}</h1>
+          <h1>묶음 운송 {orderIndex + 1}/{totalOrders}</h1>
         </div>
         {routeInfo && (
           <div className="live-nav-eta">
@@ -432,68 +449,78 @@ function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination
 
       <div className="live-nav-progress">
         <span>전체 운송 진행</span>
-        <span>0/{totalStops}건 배송 완료</span>
+        <span>{orderIndex}/{totalOrders}건 배송 완료</span>
       </div>
-      <div className="live-nav-progress-bar"><div style={{ width: '0%' }} /></div>
+      <div className="live-nav-progress-bar"><div style={{ width: `${Math.round((orderIndex / totalOrders) * 100)}%` }} /></div>
 
       <div className={`live-nav-instruction${arrived ? ' arrived' : ''}`}>
-        <span className="live-nav-instruction-icon">{arrived ? '📍' : arrowForGuidance(routeInfo?.nextGuidance ?? '')}</span>
+        <span className="live-nav-instruction-icon">
+          {arrived ? (pickupPhoto ? '✓' : '📍') : arrowForGuidance(routeInfo?.nextGuidance ?? '')}
+        </span>
         <div>
           {arrived ? (
-            <strong>상차지에 도착했어요</strong>
+            <strong>{pickupPhoto ? '상차 사진이 확인되었어요' : '정차 후 상차 사진을 촬영해 주세요'}</strong>
           ) : routeInfo ? (
             <strong>{routeInfo.nextGuidanceDistanceMeters}m 앞 {routeInfo.nextGuidance}</strong>
           ) : (
-            <strong>다음 목적지 · {activeOrder.name} 상차</strong>
+            <strong>다음 목적지 · {order.name} 상차</strong>
           )}
-          <span>{routeInfo?.nextRoadName ?? activeOrder.pickup.name}</span>
+          {!arrived && <span>{routeInfo?.nextRoadName ?? order.pickup.name}</span>}
         </div>
       </div>
 
-      <KakaoLiveNavigationMap
-        destination={{ lat: activeOrder.pickup.lat, lng: activeOrder.pickup.lng, name: activeOrder.pickup.name }}
-        onRouteInfoChange={setRouteInfo}
-      />
+      <div className="live-nav-map-frame">
+        <KakaoLiveNavigationMap
+          destination={{ lat: order.pickup.lat, lng: order.pickup.lng, name: order.pickup.name }}
+          onRouteInfoChange={setRouteInfo}
+          dimmed={arrived}
+        />
+        {arrived && (
+          <div className="live-nav-arrival-card">
+            {pickupPhoto && photoPreviewUrl ? (
+              <>
+                <img src={photoPreviewUrl} alt="상차 사진 미리보기" />
+                <div>
+                  <strong>상차 정보 등록됐어요</strong>
+                  <span>사진을 확인한 뒤 하단의 상차 완료를 눌러 주세요.</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <strong>상차지에 도착했어요</strong>
+                <span>안전한 곳에 정차 후 다음 단계로 진행하세요.</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
-      {!arrived ? (
+      {!arrived && (
         <section className="live-nav-sequence">
           <h2>이후 운송 순서</h2>
           <div className="live-nav-sequence-chips">
-            {combo.orders.map((order, index) => (
-              <span key={order.id} className={index === 0 ? 'active' : ''}>{index === 0 ? '진행' : '대기'} · {order.name}</span>
+            {combo.orders.map((item, index) => (
+              <span
+                key={item.id}
+                className={index === orderIndex ? 'active' : index < orderIndex ? 'done' : ''}
+              >
+                {index < orderIndex ? '완료' : index === orderIndex ? '진행' : '대기'} · {item.name}
+              </span>
             ))}
           </div>
-        </section>
-      ) : (
-        <section className="live-nav-proof">
-          <h2>상차 증빙</h2>
-          <p>운송 상태 확인을 위해 사진을 등록해 주세요.</p>
-          <button type="button" className="live-nav-photo-button" onClick={() => fileInputRef.current?.click()}>
-            <span className="live-nav-photo-icon">📷</span>
-            <div>
-              <strong>{photoFile ? photoFile.name : '상차 사진 촬영'}</strong>
-              <span>화물과 차량 상태가 함께 보이도록 촬영해 주세요.</span>
-            </div>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            hidden
-            onChange={(event) => setPhotoFile(event.target.files?.[0] ?? null)}
-          />
         </section>
       )}
 
       <div className="live-nav-bottom">
         {!arrived ? (
-          <button type="button" className="live-nav-confirm-button" onClick={() => setArrivedConfirmed(true)}>
+          <button type="button" className="live-nav-confirm-button" onClick={() => setArrived(true)}>
             상차지 도착 확인
           </button>
+        ) : !pickupPhoto ? (
+          <PhotoPicker label="상차 사진 촬영" onSelect={setPickupPhoto} />
         ) : (
-          <button type="button" className="live-nav-confirm-button" disabled={!photoFile} onClick={() => fileInputRef.current?.click()}>
-            {photoFile ? '상차 사진 다시 촬영' : '상차 사진 촬영'}
+          <button type="button" className="live-nav-confirm-button" onClick={onPickupComplete}>
+            {order.name} 상차 완료
           </button>
         )}
       </div>
@@ -501,10 +528,171 @@ function PickupNavigationView({ combo, onBack }: { combo: RecommendedCombination
   )
 }
 
+function DropoffProgressView({
+  order,
+  orderIndex,
+  totalOrders,
+  onBack,
+  onDropoffComplete,
+}: {
+  order: RouteItem
+  orderIndex: number
+  totalOrders: number
+  onBack: () => void
+  onDropoffComplete: () => void
+}) {
+  const [routeInfo, setRouteInfo] = useState<NavigationRouteInfo | null>(null)
+  const [dropoffPhoto, setDropoffPhoto] = useState<File | null>(null)
+  const photoPreviewUrl = usePhotoPreview(dropoffPhoto)
+  const arrived = routeInfo?.arrived ?? false
+  const isLastOrder = orderIndex + 1 >= totalOrders
+
+  return (
+    <div className="screen live-nav-screen">
+      <header className="transport-header">
+        <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
+        <h1>운송 진행</h1>
+        <span className="transport-date">{formatToday()}</span>
+      </header>
+
+      <section className="transport-current-card">
+        <div className="transport-current-head">
+          <span>현재 운송</span>
+          <span className="transport-current-badge">진행 중</span>
+        </div>
+        <h2>{order.pickup.name} 상차지 → {order.dropoff.name} 하차지</h2>
+        <p>
+          {arrived
+            ? '하차지에 도착했어요'
+            : routeInfo
+              ? `${(routeInfo.distanceMeters / 1000).toFixed(1)}km · 약 ${Math.max(1, Math.round(routeInfo.durationSeconds / 60))}분`
+              : '하차지 경로 계산 중'}
+        </p>
+      </section>
+
+      <div className="live-nav-map-frame">
+        <KakaoLiveNavigationMap
+          destination={{ lat: order.dropoff.lat, lng: order.dropoff.lng, name: order.dropoff.name }}
+          onRouteInfoChange={setRouteInfo}
+          dimmed={arrived}
+        />
+        {arrived && (
+          <div className="live-nav-arrival-card">
+            {dropoffPhoto && photoPreviewUrl ? (
+              <>
+                <img src={photoPreviewUrl} alt="하차 사진 미리보기" />
+                <div>
+                  <strong>하차 정보 등록됐어요</strong>
+                  <span>사진을 확인한 뒤 하단의 하차 완료를 눌러 주세요.</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <strong>하차지에 도착했어요</strong>
+                <span>안전한 곳에 정차 후 다음 단계로 진행하세요.</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ul className="transport-steps">
+        <li className="done"><span className="step-icon">✓</span><div><strong>접수 완료</strong></div></li>
+        <li className="done"><span className="step-icon">✓</span><div><strong>상차 확인</strong></div></li>
+        <li className={arrived ? 'done' : 'active'}>
+          <span className="step-icon">{arrived ? '✓' : null}</span>
+          <div><strong>하차 확인</strong>{!arrived && <span>목적지 도착 확인 중</span>}</div>
+        </li>
+        <li>
+          <span className="step-icon" />
+          <div><strong>운송 완료</strong></div>
+        </li>
+      </ul>
+
+      <div className="live-nav-bottom">
+        {!arrived ? (
+          <button type="button" className="live-nav-confirm-button" disabled>
+            하차 완료 · 다음 화물로 이동
+          </button>
+        ) : !dropoffPhoto ? (
+          <PhotoPicker label="하차 사진 촬영" onSelect={setDropoffPhoto} />
+        ) : (
+          <button type="button" className="live-nav-confirm-button" onClick={onDropoffComplete}>
+            {isLastOrder ? '하차 완료 · 운송 종료' : '하차 완료 · 다음 화물로 이동'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function TransportFlow({
+  combo,
+  onBack,
+  onAllComplete,
+}: {
+  combo: RecommendedCombination
+  onBack: () => void
+  onAllComplete: () => void
+}) {
+  const [orderIndex, setOrderIndex] = useState(0)
+  const [stage, setStage] = useState<'pickup' | 'dropoff'>('pickup')
+
+  const order = combo.orders[orderIndex]
+  const totalOrders = combo.orders.length
+
+  if (stage === 'pickup') {
+    return (
+      <PickupNavigationView
+        combo={combo}
+        order={order}
+        orderIndex={orderIndex}
+        totalOrders={totalOrders}
+        onBack={onBack}
+        onPickupComplete={() => setStage('dropoff')}
+      />
+    )
+  }
+
+  return (
+    <DropoffProgressView
+      order={order}
+      orderIndex={orderIndex}
+      totalOrders={totalOrders}
+      onBack={onBack}
+      onDropoffComplete={() => {
+        if (orderIndex + 1 < totalOrders) {
+          setOrderIndex((index) => index + 1)
+          setStage('pickup')
+        } else {
+          onAllComplete()
+        }
+      }}
+    />
+  )
+}
+
+function TransportCompleteView({ combo, onDone }: { combo: RecommendedCombination; onDone: () => void }) {
+  const totalPrice = combo.orders.reduce((sum, order) => sum + order.price, 0)
+
+  return (
+    <div className="screen transport-complete-screen">
+      <div className="transport-complete-icon">✓</div>
+      <h1>운송 완료</h1>
+      <p>{combo.orders.length}건 화물 운송을 모두 마쳤어요.</p>
+      <div className="transport-complete-summary">
+        <span>정산 예정 금액</span>
+        <strong>{totalPrice.toLocaleString()}원</strong>
+      </div>
+      <button type="button" className="live-nav-confirm-button" onClick={onDone}>확인</button>
+    </div>
+  )
+}
+
 function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
   const { driver } = useAppData()
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
-  const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route' | 'navigation'>('loading')
+  const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route' | 'navigation' | 'completed'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
   const [selectedId, setSelectedId] = useState(fallbackCombinations[0]?.id ?? '')
   const [preferences, setPreferences] = useState<OrderPreferences | null>(null)
@@ -583,7 +771,12 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
 
   if (view === 'navigation') {
     if (!selected) return null
-    return <PickupNavigationView combo={selected} onBack={() => setView('detail')} />
+    return <TransportFlow combo={selected} onBack={() => setView('detail')} onAllComplete={() => setView('completed')} />
+  }
+
+  if (view === 'completed') {
+    if (!selected) return null
+    return <TransportCompleteView combo={selected} onDone={() => setView('list')} />
   }
 
   return (
