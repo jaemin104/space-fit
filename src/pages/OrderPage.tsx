@@ -383,7 +383,7 @@ function LoadingScreen({ ready, onDone }: { ready: boolean; onDone: () => void }
   )
 }
 
-function OrderPage() {
+function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
   const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
@@ -440,7 +440,7 @@ function OrderPage() {
   }
 
   if (entry === 'voice') {
-    return <VoiceOrderPreferences onComplete={(nextPreferences) => {
+    return <VoiceOrderPreferences onBack={onBackToHome} onComplete={(nextPreferences) => {
       setPreferences(nextPreferences)
       setRecommendationsReady(false)
       setEntry('recommendations')
@@ -463,7 +463,7 @@ function OrderPage() {
 
   return (
     <div className="screen order-screen">
-      <header className="plain-title order-legacy-title"><h1>오늘의 추천 오더</h1><button type="button" onClick={() => setEntry('voice')}>조건 다시 설정</button></header>
+      <header className="plain-title order-legacy-title"><button className="order-back-button" type="button" onClick={() => setEntry('voice')} aria-label="AI 운행 조건 화면으로 돌아가기">‹</button><h1>오늘의 추천 오더</h1></header>
       {!combinations.length && <div className="empty-combinations"><strong>조건에 맞는 조합이 없어요</strong><span>시간·거리·최소 운임 조건을 넓혀 다시 말해보세요.</span><button type="button" onClick={() => setEntry('voice')}>조건 다시 말하기</button></div>}
       <div className="combo-list">
         {combinations.map((combo) => (

@@ -12,7 +12,7 @@
 
 /* order page */
 .order-screen{padding-bottom:8px}
-.order-legacy-title{display:flex;align-items:center;justify-content:space-between}.order-legacy-title button{border:0;background:none;color:var(--muted);padding:4px 0;font-size:12px;cursor:pointer}
+.order-legacy-title{display:flex;align-items:center;gap:6px}.order-legacy-title .order-back-button{width:34px;border:0;background:none;margin-left:-10px;padding:0;font-size:30px;line-height:1;cursor:pointer}.order-legacy-title h1{flex:1}
 
 .combo-list{display:flex;flex-direction:column;gap:14px;padding:16px 16px 20px}
 .combo-card{border:1px solid var(--border);border-radius:18px;padding:16px;background:#fff}
