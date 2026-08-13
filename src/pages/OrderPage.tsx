@@ -216,20 +216,32 @@ function ComboCard({
   onOpenRoute: () => void
   onOpenDetail: () => void
 }) {
-  const destinations = [...new Set(combo.orders.map((order) => order.dropoff.name.split('시 ')[0].replace('시', '')))].join('·')
-  const cargoNames = combo.orders.map((order) => order.name).join(' · ')
   return (
     <article className="combo-card">
       <header className="combo-card-head">
         <div>
-          <span className="combo-kicker">{combo.title}</span>
-          <h3>{destinations}</h3>
+          <h3>{combo.title}</h3>
+          <span className="combo-count">{combo.orders.length}건 묶음</span>
         </div>
-        <strong className="combo-price">{combo.expectedNetProfit.toLocaleString()}원</strong>
+        {combo.aiRecommended && <span className="ai-badge">AI 추천</span>}
       </header>
-      <p className="combo-cargo-names">{cargoNames}</p>
-      <div className="combo-load-summary"><span>적재율 {combo.weightLoadRate}%</span><span>우회 {combo.extraTimeMin}분</span></div>
-      <div className="combo-progress"><span style={{ width: `${combo.weightLoadRate}%` }} /></div>
+      <div className="combo-metrics">
+        <div><span>추가 거리</span><strong>+{combo.extraDistanceKm}km</strong></div>
+        <div><span>추가 시간</span><strong>+{combo.extraTimeMin}분</strong></div>
+        <div><span>예상 순수익</span><strong className="profit">{combo.expectedNetProfit.toLocaleString()}원</strong></div>
+      </div>
+      <div className="combo-load-rates">
+        <div className="load-rate">
+          <span>부피</span>
+          <div className="load-bar"><div style={{ width: `${combo.volumeLoadRate}%` }} /></div>
+          <strong>{combo.volumeLoadRate}%</strong>
+        </div>
+        <div className="load-rate">
+          <span>중량</span>
+          <div className="load-bar"><div style={{ width: `${combo.weightLoadRate}%` }} /></div>
+          <strong>{combo.weightLoadRate}%</strong>
+        </div>
+      </div>
       <div className="combo-actions">
         <button type="button" className="combo-action-outline" onClick={onOpenRoute}>경로 보기</button>
         <button type="button" className="combo-action-solid" onClick={onOpenDetail}>상세보기</button>
@@ -451,8 +463,7 @@ function OrderPage() {
 
   return (
     <div className="screen order-screen">
-      <header className="recommendation-header"><button type="button" onClick={() => setEntry('voice')} aria-label="운행 목표로 돌아가기">‹</button><h1>추천 오더</h1></header>
-      <h2 className="recommendation-count">추천 묶음 {combinations.length}개</h2>
+      <header className="plain-title order-legacy-title"><h1>오늘의 추천 오더</h1><button type="button" onClick={() => setEntry('voice')}>조건 다시 설정</button></header>
       {!combinations.length && <div className="empty-combinations"><strong>조건에 맞는 조합이 없어요</strong><span>시간·거리·최소 운임 조건을 넓혀 다시 말해보세요.</span><button type="button" onClick={() => setEntry('voice')}>조건 다시 말하기</button></div>}
       <div className="combo-list">
         {combinations.map((combo) => (
@@ -464,7 +475,6 @@ function OrderPage() {
           />
         ))}
       </div>
-      {combinations.length > 0 && <div className="best-combo-action"><button type="button" onClick={() => openDetail(combinations[0])}>최적조합 상세보기</button></div>}
     </div>
   )
 }
