@@ -5,6 +5,7 @@ import VoiceOrderPreferences from '../components/VoiceOrderPreferences'
 import { driverOperation, mockOrders, type CargoOrder } from '../data/mockOrders'
 import { buildCandidateCombinations, type CandidateCombination, type CargoRisk as AiCargoRisk } from '../utils/cargoRecommendation'
 import { analyzeCargoRisk, recommendCargoCombinations, type OrderPreferences } from '../utils/fetchCargoAi'
+import { useAppData } from '../context/useAppData'
 
 type CargoRisk = 'safe' | 'caution' | 'danger'
 
@@ -207,12 +208,24 @@ function buildRouteStops(combination: RecommendedCombination): RouteStop[] {
   ])
 }
 
+function getRegionName(location: string) {
+  return location.split(' ')[0].replace(/(특별시|광역시|특별자치시|시|군|구)$/u, '')
+}
+
+function getCombinationRouteTitle(combo: RecommendedCombination, returnDestination: string) {
+  const home = getRegionName(returnDestination)
+  const waypoints = [...new Set(combo.orders.flatMap((order) => [getRegionName(order.pickup.name), getRegionName(order.dropoff.name)]))].filter((region) => region !== home)
+  return [home, ...waypoints, home].join(' → ')
+}
+
 function ComboCard({
   combo,
+  routeTitle,
   onOpenRoute,
   onOpenDetail,
 }: {
   combo: RecommendedCombination
+  routeTitle: string
   onOpenRoute: () => void
   onOpenDetail: () => void
 }) {
@@ -220,8 +233,7 @@ function ComboCard({
     <article className="combo-card">
       <header className="combo-card-head">
         <div>
-          <h3>{combo.title}</h3>
-          <span className="combo-count">{combo.orders.length}건 묶음</span>
+          <h3>{routeTitle}</h3>
         </div>
         {combo.aiRecommended && <span className="ai-badge">AI 추천</span>}
       </header>
@@ -250,12 +262,12 @@ function ComboCard({
   )
 }
 
-function ComboRouteView({ combo, onBack }: { combo: RecommendedCombination; onBack: () => void }) {
+function ComboRouteView({ combo, routeTitle, onBack }: { combo: RecommendedCombination; routeTitle: string; onBack: () => void }) {
   return (
     <div className="screen order-detail-screen">
       <header className="detail-header">
         <button type="button" className="back-button" onClick={onBack} aria-label="목록으로 돌아가기">←</button>
-        <h1>{combo.title} 경로</h1>
+        <h1>{routeTitle}</h1>
       </header>
       <KakaoRouteMap key={combo.id} stops={buildRouteStops(combo)} />
       <section className="combo-detail-summary">
@@ -384,6 +396,7 @@ function LoadingScreen({ ready, onDone }: { ready: boolean; onDone: () => void }
 }
 
 function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
+  const { driver } = useAppData()
   const [entry, setEntry] = useState<'voice' | 'recommendations'>('voice')
   const [view, setView] = useState<'loading' | 'list' | 'detail' | 'route'>('loading')
   const [combinations, setCombinations] = useState(fallbackCombinations)
@@ -392,6 +405,7 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
   const [recommendationsReady, setRecommendationsReady] = useState(false)
 
   const selected = combinations.find((combo) => combo.id === selectedId) ?? combinations[0]
+  const selectedRouteTitle = selected ? getCombinationRouteTitle(selected, driver.returnDestination) : ''
 
   useEffect(() => {
     if (!preferences || entry !== 'recommendations') return
@@ -458,7 +472,7 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
 
   if (view === 'route') {
     if (!selected) return null
-    return <ComboRouteView combo={selected} onBack={() => setView('list')} />
+    return <ComboRouteView combo={selected} routeTitle={selectedRouteTitle} onBack={() => setView('list')} />
   }
 
   return (
@@ -470,6 +484,7 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
           <ComboCard
             key={combo.id}
             combo={combo}
+            routeTitle={getCombinationRouteTitle(combo, driver.returnDestination)}
             onOpenRoute={() => { setSelectedId(combo.id); setView('route') }}
             onOpenDetail={() => openDetail(combo)}
           />
