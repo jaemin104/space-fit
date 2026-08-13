@@ -690,7 +690,7 @@ function TransportCompleteView({ combo, onDone }: { combo: RecommendedCombinatio
 }
 
 function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
-  const { driver } = useAppData()
+  const { addCompletedTrip, driver } = useAppData()
   const operation = useMemo<DriverOperation>(() => {
     const returnDestination = resolveLocation(driver.returnDestination, driverOperation.returnDestination)
     return { ...driverOperation, returnDestination, selectedHub: nearestHub(returnDestination) }
@@ -705,6 +705,18 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
 
   const selected = combinations.find((combo) => combo.id === selectedId) ?? combinations[0]
   const selectedRouteTitle = selected ? getCombinationRouteTitle(selected, driver.returnDestination) : ''
+
+  const completeTransport = () => {
+    if (!selected) return
+    addCompletedTrip({
+      route: getCombinationRouteTitle(selected, driver.returnDestination),
+      date: new Intl.DateTimeFormat('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()).replaceAll('. ', '.').replace(/\.$/u, ''),
+      price: selected.expectedNetProfit,
+      type: '조합 운송',
+      category: '일반',
+    })
+    setView('completed')
+  }
 
   useEffect(() => {
     if (!preferences || entry !== 'recommendations') return
@@ -774,7 +786,7 @@ function OrderPage({ onBackToHome }: { onBackToHome: () => void }) {
 
   if (view === 'navigation') {
     if (!selected) return null
-    return <TransportFlow combo={selected} onBack={() => setView('detail')} onAllComplete={() => setView('completed')} />
+    return <TransportFlow combo={selected} onBack={() => setView('detail')} onAllComplete={completeTransport} />
   }
 
   if (view === 'completed') {

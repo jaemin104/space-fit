@@ -1,11 +1,23 @@
-import { useMemo, useState, type PropsWithChildren } from 'react'
+import { useEffect, useMemo, useState, type PropsWithChildren } from 'react'
 import { AppDataContext, type AppData, type Trip } from './appDataContext'
 
-const trips: Trip[] = [
-  { id: 1, from: '성남', to: '수원', date: '2024.01.20', price: 32400, type: '일반 운송', category: '일반' },
-  { id: 2, from: '강남구', to: '성남', date: '2024.01.08', price: 27300, type: '특수 운송', category: '특수' },
-  { id: 3, from: '신림동', to: '울산', date: '2023.12.28', price: 72100, type: '장거리 운송', category: '장거리' },
+const initialTrips: Trip[] = [
+  { id: 1, route: '성남 → 수원 → 인천 → 성남', date: '2026.08.13', price: 92000, type: '조합 운송', category: '일반' },
+  { id: 2, route: '성남 → 용인 → 안양 → 성남', date: '2026.08.11', price: 118000, type: '조합 운송', category: '특수' },
+  { id: 3, route: '성남 → 화성 → 수원 → 성남', date: '2026.08.08', price: 86000, type: '조합 운송', category: '장거리' },
 ]
+
+const TRIP_STORAGE_KEY = 'space-fit-completed-trips'
+
+function loadTrips() {
+  try {
+    const saved = window.localStorage.getItem(TRIP_STORAGE_KEY)
+    const parsed = saved ? JSON.parse(saved) : null
+    return Array.isArray(parsed) ? parsed as Trip[] : initialTrips
+  } catch {
+    return initialTrips
+  }
+}
 
 function AppDataProvider({ children }: PropsWithChildren) {
   const [vehicle, updateVehicle] = useState({ name: '1톤 카고', maxVolume: 5.5 })
@@ -15,10 +27,16 @@ function AppDataProvider({ children }: PropsWithChildren) {
     preferredAreas: ['성남', '분당', '수원'],
   })
   const [notifications, setNotifications] = useState({ order: true, settlement: true })
+  const [trips, setTrips] = useState<Trip[]>(loadTrips)
+  const grossEarnings = trips.reduce((sum, trip) => sum + trip.price, 0)
+
+  useEffect(() => {
+    window.localStorage.setItem(TRIP_STORAGE_KEY, JSON.stringify(trips))
+  }, [trips])
 
   const value = useMemo<AppData>(() => ({
     trips,
-    grossEarnings: 188000,
+    grossEarnings,
     expenses: 56200,
     driver,
     vehicle,
@@ -27,7 +45,8 @@ function AppDataProvider({ children }: PropsWithChildren) {
     setReturnDestination: (returnDestination) => updateDriver((current) => ({ ...current, returnDestination })),
     setPreferredAreas: (preferredAreas) => updateDriver((current) => ({ ...current, preferredAreas })),
     setNotification: (key, enabled) => setNotifications((current) => ({ ...current, [key]: enabled })),
-  }), [driver, notifications, vehicle])
+    addCompletedTrip: (trip) => setTrips((current) => [{ ...trip, id: Date.now() }, ...current]),
+  }), [driver, grossEarnings, notifications, trips, vehicle])
 
   return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>
 }
